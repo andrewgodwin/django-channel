@@ -129,6 +129,8 @@ class JsonWebsocketConsumer(WebsocketConsumer):
     def receive(self, text_data=None, bytes_data=None, **kwargs):
         if text_data:
             self.receive_json(self.decode_json(text_data), **kwargs)
+        elif not text_data and bytes_data:
+            raise ValueError("No text section for incoming WebSocket frame! There is a bytes section, however. Did you mean for it to be the text section?")
         else:
             raise ValueError("No text section for incoming WebSocket frame!")
 
@@ -268,6 +270,8 @@ class AsyncJsonWebsocketConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data=None, bytes_data=None, **kwargs):
         if text_data:
             await self.receive_json(await self.decode_json(text_data), **kwargs)
+        elif not text_data and bytes_data:
+            raise ValueError("No text section for incoming WebSocket frame! There is a bytes section, however. Did you mean for it to be the text section?")
         else:
             raise ValueError("No text section for incoming WebSocket frame!")
 
