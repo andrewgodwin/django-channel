@@ -3,8 +3,11 @@ import asyncio
 import async_timeout
 import pytest
 
+from django.test import override_settings
 from channels.exceptions import ChannelFull
-from channels.layers import InMemoryChannelLayer
+from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.layers import InMemoryChannelLayer, get_channel_layer
+from channels.testing import WebsocketCommunicator
 
 
 @pytest.fixture()
@@ -115,6 +118,56 @@ async def test_groups_basic(channel_layer):
     with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(1):
             await channel_layer.receive("test-gr-chan-2")
+
+
+@pytest.mark.asyncio
+async def test_async_group_self():
+    """
+    Tests that AsyncWebsocketConsumer receives messages from a group while processing a previous message
+    """
+    results = {}
+
+    class TestConsumer(AsyncWebsocketConsumer):
+        groups = ["chat"]
+
+        async def receive(self, text_data=None, bytes_data=None):
+            results["received"] = (text_data, bytes_data)
+            assert text_data == "hello"
+            await self.channel_layer.group_send("chat", {"type": "chat.message", "message": "message1"})
+            await self.channel_layer.group_send("chat", {"type": "chat.message", "message": "message2"})
+            await asyncio.sleep(0.1)
+            await self.send(text_data="message3")
+
+        async def chat_message(self, event):
+            await self.send(text_data=event["message"])
+
+    app = TestConsumer()
+
+    channel_layers_setting = {
+        "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
+    }
+    with override_settings(CHANNEL_LAYERS=channel_layers_setting):
+        communicator = WebsocketCommunicator(app, "/testws/")
+        await communicator.connect()
+
+        channel_layer = get_channel_layer()
+
+        message = {"type": "websocket.receive", "text": "hello"}
+        await channel_layer.group_send("chat", message)
+
+        responses = []
+        response = await communicator.receive_from()
+        responses.append(response)
+
+        response = await communicator.receive_from()
+        responses.append(response)
+
+        response = await communicator.receive_from()
+        responses.append(response)
+
+        await communicator.disconnect()
+
+        assert responses == ["message1", "message2", "message3"]
 
 
 @pytest.mark.asyncio
