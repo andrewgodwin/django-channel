@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -142,3 +143,41 @@ async def test_async_http_consumer_future():
     assert response["body"] == b"42"
     assert response["status"] == 200
     assert response["headers"] == [(b"Content-Type", b"text/plain")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_error_logging():
+    """Regression test for error logging."""
+
+    class TestConsumer(AsyncHttpConsumer):
+        async def handle(self, body):
+            raise AssertionError("Error correctly raised")
+
+    communicator = HttpCommunicator(TestConsumer(), "GET", "/")
+    with patch("channels.generic.http.logger.error") as mock_logger_error:
+        try:
+            await communicator.get_response(timeout=0.05)
+        except AssertionError:
+            pass
+        args, _ = mock_logger_error.call_args
+        assert "Error in handle()" in args[0]
+        assert "AssertionError: Error correctly raised" in args[0]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_error_handling_and_send_response():
+    """Regression test to check error handling."""
+
+    class TestConsumer(AsyncHttpConsumer):
+        async def handle(self, body):
+            raise AssertionError("Error correctly raised")
+
+    communicator = HttpCommunicator(TestConsumer(), "GET", "/")
+    with patch.object(AsyncHttpConsumer, "send_response") as mock_send_response:
+        try:
+            await communicator.get_response(timeout=0.05)
+        except AssertionError:
+            pass
+        mock_send_response.assert_called_once_with(500, b"Internal Server Error")

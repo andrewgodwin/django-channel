@@ -1,7 +1,13 @@
+import logging
+import traceback
+
 from channels.consumer import AsyncConsumer
 
 from ..db import aclose_old_connections
 from ..exceptions import StopConsumer
+
+logger = logging.getLogger("channels.consumer")
+logger.setLevel(logging.DEBUG)
 
 
 class AsyncHttpConsumer(AsyncConsumer):
@@ -77,9 +83,14 @@ class AsyncHttpConsumer(AsyncConsumer):
         """
         if "body" in message:
             self.body.append(message["body"])
+
         if not message.get("more_body"):
             try:
                 await self.handle(b"".join(self.body))
+            except Exception:
+                logger.error(f"Error in handle(): {traceback.format_exc()}")
+                await self.send_response(500, b"Internal Server Error")
+                raise
             finally:
                 await self.disconnect()
             raise StopConsumer()
